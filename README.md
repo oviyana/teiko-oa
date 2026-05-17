@@ -17,7 +17,7 @@
    ```bash
    streamlit run app.py
    ```
-    or use link: [teiko-oa-lmecprbwkubnzchoaoyi5f.streamlit.app](https://teiko-oa-lmecprbwkubnzchoaoyi5f.streamlit.app/)
+    or use link: [https://teiko-oa-bsuuxrswyu6s3rb5lxda5y.streamlit.app)
 
 
 ## Relational Database Schema
