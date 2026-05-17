@@ -71,7 +71,27 @@ def load_dataframes(db_path: Path):
             connection=conn,
         )
 
-    return samples_df, outcomes_filtered, subjects_df
+        projects_df = pl.read_database(
+            query="SELECT project FROM projects ORDER BY project",
+            connection=conn,
+        )
+
+        part5_df = pl.read_database(
+            query="""
+                SELECT ROUND(AVG(samp.b_cell), 2) AS avg_b_cell
+                FROM samples samp
+                JOIN subjects sub ON samp.subject = sub.subject
+                JOIN subject_outcomes out ON sub.subject = out.subject
+                JOIN treatments t ON out.treatment_id = t.treatment_id
+                WHERE t.condition = 'melanoma'
+                    AND sub.sex = 'M'
+                    AND out.response = 'yes'
+                    AND samp.time_from_treatment_start = 0
+            """,
+            connection=conn,
+        )
+
+    return samples_df, outcomes_filtered, subjects_df, projects_df, float(part5_df["avg_b_cell"][0])
 
 
 def main() -> None:
@@ -83,7 +103,7 @@ def main() -> None:
         st.info("Expected file: `cell-count-3nf.db` in repository root.")
         st.stop()
 
-    samples_df, outcomes_filtered, subjects_df = load_dataframes(DB_PATH)
+    samples_df, outcomes_filtered, subjects_df, projects_df, part5_avg_b_cell = load_dataframes(DB_PATH)
 
     freq_df = (
         samples_df
@@ -108,6 +128,13 @@ def main() -> None:
 
     required_table = freq_df.select(["sample", "total_count", "population", "count", "percentage"])
 
+    st.subheader("Required Frequency Table")
+    st.dataframe(
+        display_columns(required_table.to_pandas()),
+        width="stretch",
+        hide_index=True,
+    )
+
     stats_col1, stats_col2 = st.columns(2)
     with stats_col1:
         st.subheader("Percentage Summary by Population")
@@ -124,10 +151,10 @@ def main() -> None:
                 pl.col("percentage").quantile(0.75).alias("75%"),
                 pl.col("percentage").max().alias("max"),
             )
-            .with_columns(pl.col("population").map_elements(to_display_text, return_dtype=pl.String))
+            .with_columns(pl.col("population").str.replace_all("_", " ", literal=True).str.to_titlecase())
             .sort("population")
         )
-        st.dataframe(display_columns(pct_summary.to_pandas()), use_container_width=True)
+        st.dataframe(display_columns(pct_summary.to_pandas()), width="stretch")
 
     with stats_col2:
         st.subheader("Dataset Totals")
@@ -172,7 +199,7 @@ def main() -> None:
         st.warning("No rows found for selected Part 3 filters.")
     else:
         plot_df = analysis_df.with_columns(
-            pl.col("population").map_elements(to_display_text, return_dtype=pl.String).alias("population_label")
+            pl.col("population").str.replace_all("_", " ", literal=True).str.to_titlecase().alias("population_label")
         ).to_pandas()
 
         fig = px.box(
@@ -194,7 +221,7 @@ def main() -> None:
             xaxis_title="Population",
             yaxis_title="Percentage",
         )
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width="stretch")
 
         results = []
         for cell in selected_populations:
@@ -236,7 +263,7 @@ def main() -> None:
         st.subheader("Welch's T-test Results")
         ttest_display = display_columns(ttest_df)
         styled_ttest = ttest_display.style.apply(highlight_significant_rows, axis=1)
-        st.dataframe(styled_ttest, use_container_width=True)
+        st.dataframe(styled_ttest, width="stretch")
 
         st.markdown(
             "<div style='font-size:1.02rem; margin-top:0.4rem;'>"
@@ -266,13 +293,23 @@ def main() -> None:
         .unique()
     )
 
-    samples_by_project = merged_samples_df.group_by("project").agg(pl.col("sample").n_unique().alias("sample_count")).sort("project")
-    if "prj2" not in samples_by_project["project"].to_list():
-        sample_count_dtype = samples_by_project.schema["sample_count"]
-        prj2_row = pl.DataFrame({"project": ["prj2"], "sample_count": [0]}).with_columns(
-            pl.col("sample_count").cast(sample_count_dtype)
+    st.subheader("Identified Baseline Samples")
+    st.dataframe(
+        display_columns(merged_samples_df.sort(["project", "subject", "sample"]).to_pandas()),
+        width="stretch",
+        hide_index=True,
+    )
+
+    samples_by_project = (
+        projects_df
+        .join(
+            merged_samples_df.group_by("project").agg(pl.col("sample").n_unique().alias("sample_count")),
+            on="project",
+            how="left",
         )
-        samples_by_project = pl.concat([samples_by_project, prj2_row]).sort("project")
+        .with_columns(pl.col("sample_count").fill_null(0).cast(pl.Int64))
+        .sort("project")
+    )
 
     subjects_by_response = (
         merged_samples_df
@@ -295,13 +332,22 @@ def main() -> None:
     p4_col1, p4_col2, p4_col3 = st.columns(3)
     with p4_col1:
         st.subheader("Samples per Project")
-        st.dataframe(display_columns(samples_by_project.to_pandas()), use_container_width=True)
+        st.dataframe(display_columns(samples_by_project.to_pandas()), width="stretch")
     with p4_col2:
         st.subheader("Subjects by Response")
-        st.dataframe(display_columns(subjects_by_response.to_pandas()), use_container_width=True)
+        st.dataframe(display_columns(subjects_by_response.to_pandas()), width="stretch")
     with p4_col3:
         st.subheader("Subjects by Sex")
-        st.dataframe(display_columns(subjects_by_sex.to_pandas()), use_container_width=True)
+        st.dataframe(display_columns(subjects_by_sex.to_pandas()), width="stretch")
+
+    st.header("Part 5: Average B Cells")
+    st.markdown(
+        "<div style='font-size:1.05rem; font-weight:600; margin-bottom:0.6rem;'>"
+        "Criteria: melanoma, male, responder, and time from treatment start = 0."
+        "</div>",
+        unsafe_allow_html=True,
+    )
+    st.metric("Average B cells", f"{part5_avg_b_cell:.2f}")
 
 
 if __name__ == "__main__":

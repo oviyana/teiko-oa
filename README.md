@@ -47,5 +47,5 @@ While 3NF is ideal for data integrity, the level of normalization may need to be
 - `app.py`
   - Builds the dashboard directly from the analysis flow first developed in `analysis.ipynb`.
   - Keeps the dashboard data-driven by reading directly from SQLite at runtime, so database updates are reflected automatically without code changes.
+  - Displays the required sample-population frequency table, responder/non-responder statistical comparison, baseline subset summaries, and the Part 5 average B-cell result.
   - For larger or computationally expensive analyses, a better approach is to precompute and store snapshot tables, then have the dashboard read those outputs for faster and more stable performance.
-

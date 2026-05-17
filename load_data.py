@@ -73,7 +73,7 @@ def load_data():
     treatments_df.write_database("treatments", uri, if_table_exists="append", engine="adbc")
 
     # Join the original data to these IDs to populate the outcomes table
-    db_treatments = pl.read_database_uri("SELECT * FROM treatments", uri)
+    db_treatments = pl.read_database_uri("SELECT * FROM treatments", uri, engine="adbc")
     
     outcomes_df = (
         df.select(["subject", "treatment", "condition", "response"])
