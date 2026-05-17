@@ -22,17 +22,19 @@
 
 ## Relational Database Schema
 
-The schema in `load_data.py` uses 5 tables:
+The schema in `load_data.py` uses 7 tables:
 
 - `projects(project PK)`
 - `treatments(treatment_id PK, treatment, condition, UNIQUE(treatment, condition))`
 - `subjects(subject PK, project FK, age, sex)`
 - `subject_outcomes(subject PK/FK, treatment_id FK, response)`
-- `samples(sample PK, subject FK, sample_type, time_from_treatment_start, b_cell, cd8_t_cell, cd4_t_cell, nk_cell, monocyte)`
+- `samples(sample PK, subject FK, sample_type, time_from_treatment_start)`
+- `populations(population PK)`
+- `cell_counts(sample FK, population FK, count, PRIMARY KEY(sample, population))`
 
 ### Rationale and Scaling
 
-The database is designed using Third Normal Form (3NF) principles to reduce data redundancy and enforce referential integrity. A key benefit of this design is validation. For example, a new subject cannot be ingested unless a valid project already exists in the system. Because attributes are isolated in specific tables, clinical or demographic updates (such as a change in treatment response) only need to be performed once.
+The database is designed using Third Normal Form (3NF) principles to reduce data redundancy and enforce referential integrity. A key benefit of this design is validation. For example, a new subject cannot be ingested unless a valid project already exists in the system. Because attributes are isolated in specific tables, clinical or demographic updates (such as a change in treatment response) only need to be performed once. Cell counts are stored in long format, so adding a new immune population requires inserting a new row in `populations` and corresponding `cell_counts` records rather than changing the table schema.
 
 While 3NF is ideal for data integrity, the level of normalization may need to be tuned based on the analytical workload. At very large scale, joining several large tables can impact performance. In such cases, selective denormalization can help. For example, if treatment effects are frequently analyzed across demographics, pre-joining `subjects` and `subject_outcomes` can reduce join overhead when attributes like age or sex are repeatedly required for downstream modeling.
 
@@ -48,4 +50,5 @@ While 3NF is ideal for data integrity, the level of normalization may need to be
   - Builds the dashboard directly from the analysis flow first developed in `analysis.ipynb`.
   - Keeps the dashboard data-driven by reading directly from SQLite at runtime, so database updates are reflected automatically without code changes.
   - Displays the required sample-population frequency table, responder/non-responder statistical comparison, baseline subset summaries, and the Part 5 average B-cell result.
+  - Defaults Part 3 to baseline PBMC samples for response prediction and reports Welch tests, FDR/Bonferroni correction, effect sizes, confidence intervals, and Mann-Whitney sensitivity p-values.
   - For larger or computationally expensive analyses, a better approach is to precompute and store snapshot tables, then have the dashboard read those outputs for faster and more stable performance.

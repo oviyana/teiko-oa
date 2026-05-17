@@ -1,13 +1,16 @@
-import polars as pl
 import sqlite3
-import os
+from pathlib import Path
 
-DB_FILE = 'cell-count-3nf.db'
-CSV_FILE = 'cell-count.csv'
+import polars as pl
+
+BASE_DIR = Path(__file__).resolve().parent
+DB_FILE = BASE_DIR / "cell-count-3nf.db"
+CSV_FILE = BASE_DIR / "cell-count.csv"
+CELL_COLS = ["b_cell", "cd4_t_cell", "cd8_t_cell", "nk_cell", "monocyte"]
 
 def setup_database():
-    if os.path.exists(DB_FILE):
-        os.remove(DB_FILE)
+    if DB_FILE.exists():
+        DB_FILE.unlink()
         
     conn = sqlite3.connect(DB_FILE)
     cursor = conn.cursor()
@@ -50,16 +53,27 @@ def setup_database():
         subject TEXT,
         sample_type TEXT,
         time_from_treatment_start INTEGER,
-        b_cell INTEGER, cd8_t_cell INTEGER, cd4_t_cell INTEGER, 
-        nk_cell INTEGER, monocyte INTEGER,
         FOREIGN KEY (subject) REFERENCES subjects (subject))''')
+
+    # 6. Cell populations
+    cursor.execute("CREATE TABLE populations (population TEXT PRIMARY KEY)")
+
+    # 7. Cell counts in long format so new populations can be added without changing schema
+    cursor.execute('''
+    CREATE TABLE cell_counts (
+        sample TEXT,
+        population TEXT,
+        count INTEGER NOT NULL CHECK (count >= 0),
+        PRIMARY KEY (sample, population),
+        FOREIGN KEY (sample) REFERENCES samples (sample),
+        FOREIGN KEY (population) REFERENCES populations (population))''')
     
     conn.commit()
     conn.close()
 
 def load_data():
     df = pl.read_csv(CSV_FILE)
-    uri = f"sqlite://{DB_FILE}"
+    uri = f"sqlite:///{DB_FILE.as_posix()}"
 
     # Insert Projects and Subjects first
     df.select("project").unique().write_database("projects", uri, if_table_exists="append", engine="adbc")
@@ -85,11 +99,18 @@ def load_data():
     )
     outcomes_df.write_database("subject_outcomes", uri, if_table_exists="append", engine="adbc")
 
-    # Final Table: Samples
+    # Samples table stores sample metadata only.
     df.select([
-        "sample", "subject", "sample_type", "time_from_treatment_start",
-        "b_cell", "cd8_t_cell", "cd4_t_cell", "nk_cell", "monocyte"
+        "sample", "subject", "sample_type", "time_from_treatment_start"
     ]).write_database("samples", uri, if_table_exists="append", engine="adbc")
+
+    pl.DataFrame({"population": CELL_COLS}).write_database("populations", uri, if_table_exists="append", engine="adbc")
+
+    (
+        df.select(["sample", *CELL_COLS])
+        .unpivot(index="sample", on=CELL_COLS, variable_name="population", value_name="count")
+        .write_database("cell_counts", uri, if_table_exists="append", engine="adbc")
+    )
 
 if __name__ == "__main__":
     setup_database()
