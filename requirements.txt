@@ -1,0 +1,7 @@
+streamlit
+plotly
+pandas
+numpy
+scipy
+polars
+adbc-driver-sqlite
